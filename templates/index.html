@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Judiciary AI Summarizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+
+    <header>
+        <h1>Judiciary AI Summarization System</h1>
+        <p>Intelligent Court Judgment Analysis</p>
+    </header>
+
+    <div class="card">
+        <form id="summaryForm" enctype="multipart/form-data">
+            <textarea name="text" placeholder="Paste judgment text here..."></textarea>
+
+            <input type="file" name="file" accept=".pdf,.docx">
+
+            <button type="submit">Generate Structured Summary</button>
+        </form>
+
+        <div id="loader" style="display:none;">
+            <div class="spinner"></div>
+        </div>
+    </div>
+
+    <div class="results" id="results" style="display:none;">
+
+        <div class="result-card facts">
+            <h2>Facts of the Case</h2>
+            <p id="factsResult"></p>
+        </div>
+
+        <div class="result-card reasoning">
+            <h2>Court's Reasoning</h2>
+            <p id="reasoningResult"></p>
+        </div>
+
+        <div class="result-card decision">
+            <h2>Final Decision</h2>
+            <div class="decision-box" id="decisionResult"></div>
+        </div>
+
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

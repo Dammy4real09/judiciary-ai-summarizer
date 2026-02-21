@@ -1,0 +1,101 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #f4f6f9;
+    margin: 0;
+    padding: 0;
+    color: #1f2937;
+}
+
+.container {
+    width: 90%;
+    max-width: 1000px;
+    margin: 40px auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    color: #1e3a8a;
+}
+
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+textarea {
+    width: 100%;
+    height: 200px;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    margin-bottom: 15px;
+}
+
+input[type="file"] {
+    margin-bottom: 15px;
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    background: #1e3a8a;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #2563eb;
+}
+
+.results {
+    margin-top: 30px;
+}
+
+.result-card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+}
+
+.facts {
+    border-left: 6px solid #1e3a8a;
+}
+
+.reasoning {
+    border-left: 6px solid #7c2d12;
+}
+
+.decision {
+    border-left: 6px solid #065f46;
+    background: #f0fdf4;
+}
+
+.decision-box {
+    padding: 10px;
+    line-height: 1.8;
+    font-weight: 500;
+}
+
+.spinner {
+    border: 6px solid #eee;
+    border-top: 6px solid #1e3a8a;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    100% { transform: rotate(360deg); }
+}
