@@ -13,9 +13,7 @@
 
     <form id="summaryForm" enctype="multipart/form-data">
         <textarea name="text" placeholder="Paste judgment text here..."></textarea>
-
         <input type="file" name="file" accept=".pdf,.docx">
-
         <button type="submit">Generate Summary</button>
     </form>
 
@@ -51,9 +49,7 @@ document.getElementById("summaryForm").addEventListener("submit", function(e) {
     })
     .then(response => response.json())
     .then(data => {
-
         document.getElementById("decisionResult").textContent = data.decision;
-
         loader.style.display = "none";
         results.style.display = "block";
     })
