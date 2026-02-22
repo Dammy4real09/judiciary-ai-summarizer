@@ -1,207 +1,70 @@
-import os
-import re
-import requests
-import pdfplumber
-import docx
-from flask import Flask, render_template, request, jsonify
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Judiciary AI Hybrid Summarization System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
 
-app = Flask(__name__)
+<div class="container">
 
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    <h1>Judiciary AI Hybrid Summarization System</h1>
 
-# ===============================
-# HUGGING FACE CONFIG
-# ===============================
+    <form id="summaryForm" enctype="multipart/form-data">
+        <textarea name="text" placeholder="Paste judgment text here..."></textarea>
 
-HF_TOKEN = os.environ.get("HF_TOKEN")
+        <input type="file" name="file" accept=".pdf,.docx">
 
-if not HF_TOKEN:
-    print("WARNING: HF_TOKEN not set.")
+        <button type="submit">Generate Summary</button>
+    </form>
 
-HF_HEADERS = {}
-if HF_TOKEN:
-    HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+    <div id="loader" style="display:none;">
+        <div class="spinner"></div>
+    </div>
 
-LEGALBERT_API_URL = "https://api-inference.huggingface.co/models/lawal-Dare/legal-bert-nigeria"
-LLM_API_URL = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+    <div id="results" style="display:none;">
+        <div class="result-card">
+            <h2>Structured Judicial Summary</h2>
+            <pre id="decisionResult"></pre>
+        </div>
+    </div>
 
-# ===============================
-# FILE EXTRACTION
-# ===============================
+</div>
 
-def extract_text_from_docx(file_path):
-    document = docx.Document(file_path)
-    return "\n".join([p.text for p in document.paragraphs])
+<script>
+document.getElementById("summaryForm").addEventListener("submit", function(e) {
 
+    e.preventDefault();
 
-def extract_text_from_pdf(file_path):
-    text = ""
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
+    const loader = document.getElementById("loader");
+    const results = document.getElementById("results");
 
+    loader.style.display = "block";
+    results.style.display = "none";
 
-# ===============================
-# TEXT PROCESSING
-# ===============================
+    const formData = new FormData(this);
 
-def split_into_sentences(text):
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    return [s.strip() for s in sentences if len(s.strip()) > 40]
+    fetch("/", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
 
+        document.getElementById("decisionResult").textContent = data.decision;
 
-# ===============================
-# LEGALBERT SCORING
-# ===============================
+        loader.style.display = "none";
+        results.style.display = "block";
+    })
+    .catch(error => {
+        loader.style.display = "none";
+        alert("Error generating summary.");
+        console.error(error);
+    });
 
-def score_sentences(sentences):
+});
+</script>
 
-    payload = {"inputs": sentences}
-
-    try:
-        response = requests.post(
-            LEGALBERT_API_URL,
-            headers=HF_HEADERS,
-            json=payload,
-            timeout=60
-        )
-
-        response.raise_for_status()
-        result = response.json()
-
-        scores = []
-
-        for item in result:
-            for label in item:
-                if "1" in label["label"] or "important" in label["label"].lower():
-                    scores.append(label["score"])
-                    break
-            else:
-                scores.append(item[0]["score"])
-
-        return scores
-
-    except Exception as e:
-        print("LegalBERT Error:", e)
-        return [0.5] * len(sentences)
-
-
-# ===============================
-# LLM REFORMATTER
-# ===============================
-
-def reformat_with_llm(extracted_text):
-
-    prompt = f"""
-You are a Nigerian judicial legal assistant.
-
-Using the extracted judgment content below, rewrite it clearly into:
-
-1. Facts of the Case
-2. Issues for Determination
-3. Court's Reasoning
-4. Final Decision / Orders
-
-Rules:
-- Maintain formal judicial tone.
-- Do not invent new facts.
-- Clearly number final orders if present.
-- Be structured and coherent.
-
-Extracted Content:
-{extracted_text}
-"""
-
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 500,
-            "temperature": 0.2
-        }
-    }
-
-    try:
-        response = requests.post(
-            LLM_API_URL,
-            headers=HF_HEADERS,
-            json=payload,
-            timeout=120
-        )
-
-        response.raise_for_status()
-        result = response.json()
-
-        return result[0]["generated_text"]
-
-    except Exception as e:
-        print("LLM Error:", e)
-        return "⚠️ LLM restructuring failed. Please try again."
-
-
-# ===============================
-# HYBRID PIPELINE
-# ===============================
-
-def generate_hybrid_summary(text):
-
-    sentences = split_into_sentences(text)
-
-    if not sentences:
-        return "Insufficient text for summarization."
-
-    scores = score_sentences(sentences)
-
-    scored = list(zip(sentences, scores))
-    scored.sort(key=lambda x: x[1], reverse=True)
-
-    top_sentences = [s for s, score in scored[:20]]
-    top_sentences.sort(key=lambda s: text.find(s))
-
-    extracted_text = " ".join(top_sentences)
-
-    structured_output = reformat_with_llm(extracted_text)
-
-    return structured_output
-
-
-# ===============================
-# ROUTE
-# ===============================
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-
-    if request.method == "POST":
-
-        text = request.form.get("text", "")
-
-        if "file" in request.files and request.files["file"].filename != "":
-            file = request.files["file"]
-            file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(file_path)
-
-            if file.filename.endswith(".pdf"):
-                text = extract_text_from_pdf(file_path)
-
-            elif file.filename.endswith(".docx"):
-                text = extract_text_from_docx(file_path)
-
-        if not text.strip():
-            return jsonify({"decision": "No input provided."})
-
-        summary = generate_hybrid_summary(text)
-
-        return jsonify({"decision": summary})
-
-    return render_template("index.html")
-
-
-# ===============================
-# RUN LOCAL
-# ===============================
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+</body>
+</html>
