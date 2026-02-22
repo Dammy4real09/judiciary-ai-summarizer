@@ -7,6 +7,10 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
+# ===============================
+# CONFIGURATION
+# ===============================
+
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -15,34 +19,46 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
     print("WARNING: HF_TOKEN not set.")
 
-HF_HEADERS = {}
+HEADERS = {}
 if HF_TOKEN:
-    HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+    HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-LEGALBERT_API_URL = (
+LEGALBERT_API = (
     "https://api-inference.huggingface.co/models/lawal-Dare/legal-bert-nigeria"
 )
-LLM_API_URL = (
-    "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
-)
+LLM_API = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+
+# ===============================
+# FILE EXTRACTION
+# ===============================
 
 
-def extract_text_from_docx(file_path):
-    document = docx.Document(file_path)
+def extract_docx(path):
+    document = docx.Document(path)
     return "\n".join([p.text for p in document.paragraphs])
 
 
-def extract_text_from_pdf(file_path):
+def extract_pdf(path):
     text = ""
-    with pdfplumber.open(file_path) as pdf:
+    with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             text += page.extract_text() or ""
     return text
 
 
-def split_into_sentences(text):
+# ===============================
+# TEXT UTILITIES
+# ===============================
+
+
+def split_sentences(text):
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return [s.strip() for s in sentences if len(s.strip()) > 40]
+
+
+# ===============================
+# LEGALBERT SCORING
+# ===============================
 
 
 def score_sentences(sentences):
@@ -50,15 +66,14 @@ def score_sentences(sentences):
 
     try:
         response = requests.post(
-            LEGALBERT_API_URL, headers=HF_HEADERS, json=payload, timeout=60
+            LEGALBERT_API, headers=HEADERS, json=payload, timeout=60
         )
-
         response.raise_for_status()
-        result = response.json()
+        results = response.json()
 
         scores = []
 
-        for item in result:
+        for item in results:
             for label in item:
                 if "1" in label["label"] or "important" in label["label"].lower():
                     scores.append(label["score"])
@@ -73,12 +88,17 @@ def score_sentences(sentences):
         return [0.5] * len(sentences)
 
 
-def reformat_with_llm(extracted_text):
+# ===============================
+# LLM REFORMATTING
+# ===============================
+
+
+def reformat_with_llm(text):
 
     prompt = f"""
-You are a Nigerian judicial legal assistant.
+You are a Nigerian judicial assistant.
 
-Rewrite the extracted content clearly into:
+Restructure the following extracted judgment content into:
 
 1. Facts of the Case
 2. Issues for Determination
@@ -89,7 +109,7 @@ Maintain formal tone.
 Do not invent facts.
 
 Extracted Content:
-{extracted_text}
+{text}
 """
 
     payload = {
@@ -98,38 +118,44 @@ Extracted Content:
     }
 
     try:
-        response = requests.post(
-            LLM_API_URL, headers=HF_HEADERS, json=payload, timeout=120
-        )
-
+        response = requests.post(LLM_API, headers=HEADERS, json=payload, timeout=120)
         response.raise_for_status()
         result = response.json()
-
         return result[0]["generated_text"]
 
     except Exception as e:
         print("LLM Error:", e)
-        return "LLM restructuring failed."
+        return "⚠️ LLM restructuring failed."
 
 
-def generate_hybrid_summary(text):
+# ===============================
+# HYBRID PIPELINE
+# ===============================
 
-    sentences = split_into_sentences(text)
+
+def generate_summary(text):
+
+    sentences = split_sentences(text)
 
     if not sentences:
         return "Insufficient text."
 
     scores = score_sentences(sentences)
 
-    scored = list(zip(sentences, scores))
-    scored.sort(key=lambda x: x[1], reverse=True)
+    ranked = list(zip(sentences, scores))
+    ranked.sort(key=lambda x: x[1], reverse=True)
 
-    top_sentences = [s for s, score in scored[:20]]
+    top_sentences = [s for s, _ in ranked[:20]]
     top_sentences.sort(key=lambda s: text.find(s))
 
-    extracted_text = " ".join(top_sentences)
+    extracted = " ".join(top_sentences)
 
-    return reformat_with_llm(extracted_text)
+    return reformat_with_llm(extracted)
+
+
+# ===============================
+# ROUTES
+# ===============================
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -140,24 +166,27 @@ def index():
 
         if "file" in request.files and request.files["file"].filename != "":
             file = request.files["file"]
-            file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(file_path)
+            path = os.path.join(UPLOAD_FOLDER, file.filename)
+            file.save(path)
 
             if file.filename.endswith(".pdf"):
-                text = extract_text_from_pdf(file_path)
-
+                text = extract_pdf(path)
             elif file.filename.endswith(".docx"):
-                text = extract_text_from_docx(file_path)
+                text = extract_docx(path)
 
         if not text.strip():
             return jsonify({"decision": "No input provided."})
 
-        summary = generate_hybrid_summary(text)
+        summary = generate_summary(text)
 
         return jsonify({"decision": summary})
 
     return render_template("index.html")
 
+
+# ===============================
+# LOCAL RUN
+# ===============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
