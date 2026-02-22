@@ -93,100 +93,79 @@ def score_sentences(sentences):
 
 def generate_structured_summary(text):
 
-    # ---------------------------
-    # 1. Extract Final Decision
-    # ---------------------------
+    # Normalize text
+    text = text.replace("\r", "")
 
     # ---------------------------
-# Improved Decision Extraction
-# ---------------------------
-
-decision_section = ""
-
-# Work only on the last 30% of the document
-cut_index = int(len(text) * 0.7)
-end_part = text[cut_index:]
-
-trigger_phrases = [
-    "i hereby order",
-    "i accordingly order",
-    "it is hereby ordered",
-    "judgment is hereby entered",
-    "the defendant shall pay",
-    "the claimant is entitled",
-    "the court awards"
-]
-
-lower_end = end_part.lower()
-
-for phrase in trigger_phrases:
-    if phrase in lower_end:
-        start = lower_end.find(phrase)
-        decision_section = end_part[start:]
-        break
-
-# Clean formatting
-if decision_section:
-    decision_section = decision_section.replace("\n", "<br>")
-else:
-    decision_section = "Final decision section could not be clearly isolated."
+    # 1. Detect Section Headings
     # ---------------------------
-    # 2. Split Into Paragraph Blocks
+
+    sections = {"facts": "", "issues": "", "analysis": "", "decision": ""}
+
+    lower_text = text.lower()
+
+    # Try splitting by known headings
+    headings = {
+        "facts": ["facts", "background", "case background"],
+        "issues": ["issues for determination", "issues"],
+        "analysis": ["analysis", "court's analysis", "consideration"],
+        "decision": ["decision", "holding", "orders", "conclusion"],
+    }
+
+    for key, patterns in headings.items():
+        for pattern in patterns:
+            if pattern in lower_text:
+                start = lower_text.find(pattern)
+                sections[key] = text[start : start + 3000]
+                break
+
+    # ---------------------------
+    # 2. If No Headings, Use Positional Logic
     # ---------------------------
 
     paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 40]
 
-    if not paragraphs:
-        return {"facts": "", "reasoning": "", "decision": decision_section}
-
-    # ---------------------------
-    # 3. Positional Logic
-    # ---------------------------
-
     total = len(paragraphs)
 
-    # First 30% → Background / Facts
-    facts_block = paragraphs[: max(1, int(total * 0.3))]
+    if not sections["facts"]:
+        sections["facts"] = " ".join(paragraphs[: max(1, int(total * 0.25))])
 
-    # Middle 50% → Court Analysis
-    reasoning_block = paragraphs[int(total * 0.3) : int(total * 0.8)]
+    if not sections["analysis"]:
+        sections["analysis"] = " ".join(
+            paragraphs[int(total * 0.25) : int(total * 0.75)]
+        )
+
+    if not sections["decision"]:
+        sections["decision"] = " ".join(paragraphs[int(total * 0.75) :])
 
     # ---------------------------
-    # 4. Importance Filtering Within Sections
+    # 3. Clean Decision Section
     # ---------------------------
 
-    facts_sentences = split_into_sentences(" ".join(facts_block))
-    reasoning_sentences = split_into_sentences(" ".join(reasoning_block))
+    trigger_phrases = [
+        "i hereby order",
+        "i accordingly order",
+        "it is hereby ordered",
+        "the defendant shall",
+        "the claimant is entitled",
+        "judgment is entered",
+    ]
 
-    # Score separately
-    facts_scores = score_sentences(facts_sentences)
-    reasoning_scores = score_sentences(reasoning_sentences)
+    decision_text = sections["decision"]
+    lower_decision = decision_text.lower()
 
-    facts_scored = list(zip(facts_sentences, facts_scores))
-    reasoning_scored = list(zip(reasoning_sentences, reasoning_scores))
+    for phrase in trigger_phrases:
+        if phrase in lower_decision:
+            start = lower_decision.find(phrase)
+            sections["decision"] = decision_text[start:]
+            break
 
-    facts_scored.sort(key=lambda x: x[1], reverse=True)
-    reasoning_scored.sort(key=lambda x: x[1], reverse=True)
-
-    top_facts = [s for s, score in facts_scored[:5]]
-    top_reasoning = [s for s, score in reasoning_scored[:8]]
-
-    # Restore order
-    top_facts.sort(key=lambda s: text.find(s))
-    top_reasoning.sort(key=lambda s: text.find(s))
-
-    facts_text = " ".join(top_facts)
-    reasoning_text = " ".join(top_reasoning)
-
-    if decision_section:
-        decision_section = decision_section.replace("\n", "<br>")
-    else:
-        decision_section = "Final decision section could not be automatically isolated."
+    sections["decision"] = sections["decision"].replace("\n", "<br>")
 
     return {
-        "facts": facts_text,
-        "reasoning": reasoning_text,
-        "decision": decision_section,
+        "facts": sections["facts"][:1500],
+        "reasoning": sections["analysis"][:2000],
+        "decision": sections["decision"],
     }
 
 
