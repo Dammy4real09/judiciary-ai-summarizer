@@ -11,10 +11,9 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ===============================
-# HUGGING FACE CONFIGURATION
+# HUGGING FACE CONFIG
 # ===============================
 
-HF_API_URL = "https://api-inference.huggingface.co/models/lawal-Dare/legal-bert-nigeria"
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
 if not HF_TOKEN:
@@ -23,6 +22,13 @@ if not HF_TOKEN:
 HF_HEADERS = {}
 if HF_TOKEN:
     HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+LEGALBERT_API_URL = (
+    "https://api-inference.huggingface.co/models/lawal-Dare/legal-bert-nigeria"
+)
+LLM_API_URL = (
+    "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+)
 
 # ===============================
 # FILE EXTRACTION
@@ -49,11 +55,11 @@ def extract_text_from_pdf(file_path):
 
 def split_into_sentences(text):
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    return [s.strip() for s in sentences if len(s.strip()) > 30]
+    return [s.strip() for s in sentences if len(s.strip()) > 40]
 
 
 # ===============================
-# BATCH SCORING
+# EXTRACTIVE SCORING (Legal-BERT)
 # ===============================
 
 
@@ -63,7 +69,7 @@ def score_sentences(sentences):
 
     try:
         response = requests.post(
-            HF_API_URL, headers=HF_HEADERS, json=payload, timeout=60
+            LEGALBERT_API_URL, headers=HF_HEADERS, json=payload, timeout=60
         )
 
         response.raise_for_status()
@@ -82,95 +88,89 @@ def score_sentences(sentences):
         return scores
 
     except Exception as e:
-        print("HF API Error:", e)
+        print("LegalBERT Error:", e)
         return [0.5] * len(sentences)
 
 
 # ===============================
-# STRUCTURED SUMMARY GENERATOR
+# LLM STRUCTURAL REFORMATTER
 # ===============================
 
 
-def generate_structured_summary(text):
+def reformat_with_llm(extracted_text):
 
-    # Normalize text
-    text = text.replace("\r", "")
+    prompt = f"""
+You are a judicial legal assistant.
 
-    # ---------------------------
-    # 1. Detect Section Headings
-    # ---------------------------
+Using the extracted judgment content below, restructure it clearly into:
 
-    sections = {"facts": "", "issues": "", "analysis": "", "decision": ""}
+1. Facts of the Case
+2. Issues for Determination
+3. Court's Reasoning
+4. Final Decision / Orders
 
-    lower_text = text.lower()
+Rules:
+- Maintain formal judicial tone.
+- Do not invent facts.
+- If monetary awards exist, clearly state them.
+- Number final orders if applicable.
 
-    # Try splitting by known headings
-    headings = {
-        "facts": ["facts", "background", "case background"],
-        "issues": ["issues for determination", "issues"],
-        "analysis": ["analysis", "court's analysis", "consideration"],
-        "decision": ["decision", "holding", "orders", "conclusion"],
+Extracted Content:
+{extracted_text}
+"""
+
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 800, "temperature": 0.3},
     }
 
-    for key, patterns in headings.items():
-        for pattern in patterns:
-            if pattern in lower_text:
-                start = lower_text.find(pattern)
-                sections[key] = text[start : start + 3000]
-                break
-
-    # ---------------------------
-    # 2. If No Headings, Use Positional Logic
-    # ---------------------------
-
-    paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 40]
-
-    total = len(paragraphs)
-
-    if not sections["facts"]:
-        sections["facts"] = " ".join(paragraphs[: max(1, int(total * 0.25))])
-
-    if not sections["analysis"]:
-        sections["analysis"] = " ".join(
-            paragraphs[int(total * 0.25) : int(total * 0.75)]
+    try:
+        response = requests.post(
+            LLM_API_URL, headers=HF_HEADERS, json=payload, timeout=120
         )
 
-    if not sections["decision"]:
-        sections["decision"] = " ".join(paragraphs[int(total * 0.75) :])
+        response.raise_for_status()
+        result = response.json()
 
-    # ---------------------------
-    # 3. Clean Decision Section
-    # ---------------------------
+        return result[0]["generated_text"]
 
-    trigger_phrases = [
-        "i hereby order",
-        "i accordingly order",
-        "it is hereby ordered",
-        "the defendant shall",
-        "the claimant is entitled",
-        "judgment is entered",
-    ]
-
-    decision_text = sections["decision"]
-    lower_decision = decision_text.lower()
-
-    for phrase in trigger_phrases:
-        if phrase in lower_decision:
-            start = lower_decision.find(phrase)
-            sections["decision"] = decision_text[start:]
-            break
-
-    sections["decision"] = sections["decision"].replace("\n", "<br>")
-
-    return {
-        "facts": sections["facts"][:1500],
-        "reasoning": sections["analysis"][:2000],
-        "decision": sections["decision"],
-    }
+    except Exception as e:
+        print("LLM Error:", e)
+        return "LLM restructuring failed."
 
 
 # ===============================
-# MAIN ROUTE
+# HYBRID SUMMARY PIPELINE
+# ===============================
+
+
+def generate_hybrid_summary(text):
+
+    sentences = split_into_sentences(text)
+
+    if not sentences:
+        return "Insufficient text for summarization."
+
+    scores = score_sentences(sentences)
+
+    scored = list(zip(sentences, scores))
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    top_sentences = [s for s, score in scored[:20]]
+
+    # Restore original order
+    top_sentences.sort(key=lambda s: text.find(s))
+
+    extracted_text = " ".join(top_sentences)
+
+    # Send to LLM for structured reformatting
+    structured_output = reformat_with_llm(extracted_text)
+
+    return structured_output
+
+
+# ===============================
+# ROUTE
 # ===============================
 
 
@@ -192,19 +192,17 @@ def index():
                 text = extract_text_from_docx(file_path)
 
         if not text.strip():
-            return jsonify(
-                {"facts": "No input provided.", "reasoning": "", "decision": ""}
-            )
+            return jsonify({"decision": "No input provided."})
 
-        summary = generate_structured_summary(text)
+        summary = generate_hybrid_summary(text)
 
-        return jsonify(summary)
+        return jsonify({"decision": summary})
 
     return render_template("index.html")
 
 
 # ===============================
-# LOCAL RUN
+# RUN LOCAL
 # ===============================
 
 if __name__ == "__main__":
