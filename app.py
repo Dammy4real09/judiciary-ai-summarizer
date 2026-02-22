@@ -10,10 +10,6 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ===============================
-# HUGGING FACE CONFIG
-# ===============================
-
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
 if not HF_TOKEN:
@@ -30,10 +26,6 @@ LLM_API_URL = (
     "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
 )
 
-# ===============================
-# FILE EXTRACTION
-# ===============================
-
 
 def extract_text_from_docx(file_path):
     document = docx.Document(file_path)
@@ -48,23 +40,12 @@ def extract_text_from_pdf(file_path):
     return text
 
 
-# ===============================
-# TEXT PROCESSING
-# ===============================
-
-
 def split_into_sentences(text):
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return [s.strip() for s in sentences if len(s.strip()) > 40]
 
 
-# ===============================
-# LEGALBERT SCORING
-# ===============================
-
-
 def score_sentences(sentences):
-
     payload = {"inputs": sentences}
 
     try:
@@ -92,28 +73,20 @@ def score_sentences(sentences):
         return [0.5] * len(sentences)
 
 
-# ===============================
-# LLM REFORMATTER
-# ===============================
-
-
 def reformat_with_llm(extracted_text):
 
     prompt = f"""
 You are a Nigerian judicial legal assistant.
 
-Using the extracted judgment content below, rewrite it clearly into:
+Rewrite the extracted content clearly into:
 
 1. Facts of the Case
 2. Issues for Determination
 3. Court's Reasoning
 4. Final Decision / Orders
 
-Rules:
-- Maintain formal judicial tone.
-- Do not invent new facts.
-- Clearly number final orders if present.
-- Be structured and coherent.
+Maintain formal tone.
+Do not invent facts.
 
 Extracted Content:
 {extracted_text}
@@ -136,12 +109,7 @@ Extracted Content:
 
     except Exception as e:
         print("LLM Error:", e)
-        return "⚠️ LLM restructuring failed. Please try again."
-
-
-# ===============================
-# HYBRID PIPELINE
-# ===============================
+        return "LLM restructuring failed."
 
 
 def generate_hybrid_summary(text):
@@ -149,7 +117,7 @@ def generate_hybrid_summary(text):
     sentences = split_into_sentences(text)
 
     if not sentences:
-        return "Insufficient text for summarization."
+        return "Insufficient text."
 
     scores = score_sentences(sentences)
 
@@ -161,14 +129,7 @@ def generate_hybrid_summary(text):
 
     extracted_text = " ".join(top_sentences)
 
-    structured_output = reformat_with_llm(extracted_text)
-
-    return structured_output
-
-
-# ===============================
-# ROUTE
-# ===============================
+    return reformat_with_llm(extracted_text)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -197,10 +158,6 @@ def index():
 
     return render_template("index.html")
 
-
-# ===============================
-# RUN LOCAL
-# ===============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
