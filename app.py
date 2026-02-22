@@ -27,7 +27,7 @@ LEGALBERT_API_URL = (
     "https://api-inference.huggingface.co/models/lawal-Dare/legal-bert-nigeria"
 )
 LLM_API_URL = (
-    "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+    "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
 )
 
 # ===============================
@@ -59,7 +59,7 @@ def split_into_sentences(text):
 
 
 # ===============================
-# EXTRACTIVE SCORING (Legal-BERT)
+# LEGALBERT SCORING
 # ===============================
 
 
@@ -93,16 +93,16 @@ def score_sentences(sentences):
 
 
 # ===============================
-# LLM STRUCTURAL REFORMATTER
+# LLM REFORMATTER
 # ===============================
 
 
 def reformat_with_llm(extracted_text):
 
     prompt = f"""
-You are a judicial legal assistant.
+You are a Nigerian judicial legal assistant.
 
-Using the extracted judgment content below, restructure it clearly into:
+Using the extracted judgment content below, rewrite it clearly into:
 
 1. Facts of the Case
 2. Issues for Determination
@@ -111,9 +111,9 @@ Using the extracted judgment content below, restructure it clearly into:
 
 Rules:
 - Maintain formal judicial tone.
-- Do not invent facts.
-- If monetary awards exist, clearly state them.
-- Number final orders if applicable.
+- Do not invent new facts.
+- Clearly number final orders if present.
+- Be structured and coherent.
 
 Extracted Content:
 {extracted_text}
@@ -121,7 +121,7 @@ Extracted Content:
 
     payload = {
         "inputs": prompt,
-        "parameters": {"max_new_tokens": 800, "temperature": 0.3},
+        "parameters": {"max_new_tokens": 500, "temperature": 0.2},
     }
 
     try:
@@ -136,11 +136,11 @@ Extracted Content:
 
     except Exception as e:
         print("LLM Error:", e)
-        return "LLM restructuring failed."
+        return "⚠️ LLM restructuring failed. Please try again."
 
 
 # ===============================
-# HYBRID SUMMARY PIPELINE
+# HYBRID PIPELINE
 # ===============================
 
 
@@ -157,13 +157,10 @@ def generate_hybrid_summary(text):
     scored.sort(key=lambda x: x[1], reverse=True)
 
     top_sentences = [s for s, score in scored[:20]]
-
-    # Restore original order
     top_sentences.sort(key=lambda s: text.find(s))
 
     extracted_text = " ".join(top_sentences)
 
-    # Send to LLM for structured reformatting
     structured_output = reformat_with_llm(extracted_text)
 
     return structured_output

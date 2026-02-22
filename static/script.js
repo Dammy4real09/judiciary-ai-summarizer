@@ -17,9 +17,7 @@ document.getElementById("summaryForm").addEventListener("submit", function(e) {
     .then(response => response.json())
     .then(data => {
 
-        document.getElementById("factsResult").innerText = data.facts;
-        document.getElementById("reasoningResult").innerText = data.reasoning;
-        document.getElementById("decisionResult").innerHTML = data.decision;
+        document.getElementById("decisionResult").textContent = data.decision;
 
         loader.style.display = "none";
         results.style.display = "block";
