@@ -16,14 +16,7 @@ if not HF_TOKEN:
 
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-HF_MODEL = (
-    "https://router.huggingface.co/hf-inference/models/HuggingFaceH4/zephyr-7b-beta"
-)
-
-
-# ===============================
-# FILE EXTRACTION
-# ===============================
+HF_MODEL = "https://router.huggingface.co/hf-inference/models/google/flan-t5-base"
 
 
 def extract_docx(path):
@@ -39,17 +32,10 @@ def extract_pdf(path):
     return text
 
 
-# ===============================
-# SUMMARY GENERATION
-# ===============================
-
-
 def generate_summary(text):
 
     prompt = f"""
-You are a Nigerian judicial legal assistant.
-
-Restructure the following court judgment into clearly labeled sections:
+Summarize the following Nigerian court judgment into structured sections:
 
 Facts of the Case:
 Issues for Determination:
@@ -58,45 +44,31 @@ Final Decision / Orders:
 
 Maintain formal legal tone.
 Do not invent facts.
-Clearly number the final orders.
-If monetary awards are present, state them clearly.
+Number final orders clearly.
 
 Judgment:
-{text[:4000]}
+{text[:3000]}
 """
 
     payload = {
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a precise judicial summarization assistant.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "parameters": {"max_new_tokens": 500, "temperature": 0.2},
-        "options": {"wait_for_model": True},
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 300, "temperature": 0.2},
     }
 
     try:
-        response = requests.post(HF_MODEL, headers=HEADERS, json=payload, timeout=180)
+        response = requests.post(HF_MODEL, headers=HEADERS, json=payload, timeout=120)
 
         response.raise_for_status()
         result = response.json()
 
-        # Zephyr router response format
-        if "choices" in result:
-            return result["choices"][0]["message"]["content"]
+        if isinstance(result, list) and "generated_text" in result[0]:
+            return result[0]["generated_text"]
 
-        return "Unexpected response format from model."
+        return "Unexpected response format."
 
     except Exception as e:
         print("HF Router Error:", e)
         return "LLM restructuring failed."
-
-
-# ===============================
-# ROUTES
-# ===============================
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -124,10 +96,6 @@ def index():
 
     return render_template("index.html")
 
-
-# ===============================
-# LOCAL RUN
-# ===============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
