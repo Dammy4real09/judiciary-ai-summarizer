@@ -1,20 +1,28 @@
 import os
 import pdfplumber
 import docx
+import requests
 from flask import Flask, render_template, request, jsonify
-from openai import OpenAI
 
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+HF_TOKEN = os.environ.get("HF_TOKEN")
+
+if not HF_TOKEN:
+    print("WARNING: HF_TOKEN not set.")
+
+HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+HF_MODEL = "https://router.huggingface.co/hf-inference/models/mistralai/Mistral-7B-Instruct-v0.2"
+
 
 def extract_docx(path):
     document = docx.Document(path)
     return "\n".join([p.text for p in document.paragraphs])
+
 
 def extract_pdf(path):
     text = ""
@@ -23,44 +31,50 @@ def extract_pdf(path):
             text += page.extract_text() or ""
     return text
 
+
 def generate_summary(text):
 
     prompt = f"""
-You are a Nigerian judicial legal assistant.
+You are a Nigerian judicial assistant.
 
-Restructure the following judgment into:
+Restructure the following judgment into clearly labeled sections:
 
-1. Facts of the Case
-2. Issues for Determination
-3. Court's Reasoning
-4. Final Decision / Orders
+Facts of the Case:
+Issues for Determination:
+Court's Reasoning:
+Final Decision / Orders:
 
-Maintain formal judicial tone.
+Maintain formal legal tone.
 Do not invent facts.
-If monetary awards exist, clearly state them.
-Number final orders where appropriate.
+Number final orders clearly.
 
-Judgment Text:
-{text}
+Judgment:
+{text[:4000]}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a precise judicial summarization assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.2
-    )
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 400, "temperature": 0.2},
+        "options": {"wait_for_model": True},
+    }
 
-    return response.choices[0].message.content
+    try:
+        response = requests.post(HF_MODEL, headers=HEADERS, json=payload, timeout=120)
+
+        response.raise_for_status()
+        result = response.json()
+
+        return result[0]["generated_text"]
+
+    except Exception as e:
+        print("HF Router Error:", e)
+        return "LLM restructuring failed."
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
 
     if request.method == "POST":
-
         text = request.form.get("text", "")
 
         if "file" in request.files and request.files["file"].filename != "":
